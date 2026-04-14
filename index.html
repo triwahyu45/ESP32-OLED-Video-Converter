@@ -51,6 +51,16 @@
             <button id="rotateBtn" class="action-btn" style="background: #333; margin-top: 10px; border: 1px solid #555; color: #00e5ff;">↻ Putar Video 90°</button>
 
             <div class="control-group" style="margin-top: 15px;">
+                <label><span>Metode Konversi Warna:</span></label>
+                <select id="ditherMode" style="border-color: #00e5ff;">
+                    <option value="threshold">Solid Threshold (Hitam/Putih Pekat)</option>
+                    <option value="bayer" selected>Bayer Dithering (Stabil, Rekomendasi Video)</option>
+                    <option value="floyd">Floyd-Steinberg (Halus, Cocok Gambar Detail)</option>
+                    <option value="atkinson">Atkinson Dithering (Cegah Bayangan Nge-Blok Hitam)</option>
+                </select>
+            </div>
+
+            <div class="control-group" style="margin-top: 15px;">
                 <label><span>Mode Skala Layar:</span></label>
                 <select id="scaleMode">
                     <option value="fit">Best Fit (Proporsional dengan Border Hitam)</option>
@@ -92,7 +102,7 @@
 
             <div class="control-group">
                 <label>
-                    <span>B/W Threshold: <span id="threshVal">128</span></span>
+                    <span>B/W / Dither Bias: <span id="threshVal">128</span></span>
                     <button class="reset-btn" id="resetThresh" title="Reset Threshold ke 128">↺</button>
                 </label>
                 <input type="range" id="threshold" min="0" max="255" value="128">
@@ -248,6 +258,7 @@ void loop() {
         const frameCountSpan = document.getElementById('frameCount');
 
         // Settings Elements
+        const ditherModeInput = document.getElementById('ditherMode');
         const scaleModeInput = document.getElementById('scaleMode');
         const customControls = document.getElementById('customControls');
         const fpsInput = document.getElementById('fps');
@@ -307,7 +318,7 @@ void loop() {
         });
 
         // Live Update Triggers
-        [thresholdInput, contrastInput, brightnessInput, invertInput, customW, customH, customX, customY].forEach(el => {
+        [ditherModeInput, thresholdInput, contrastInput, brightnessInput, invertInput, customW, customH, customX, customY].forEach(el => {
             el.addEventListener('input', () => { if(video.paused && !isConverting) drawFrame(); });
         });
 
@@ -334,7 +345,7 @@ void loop() {
         });
         video.addEventListener('timeupdate', () => { if (video.paused && !isConverting) drawFrame(); });
 
-        // FUNGSI MENGGAMBAR KE CANVAS
+        // FUNGSI MENGGAMBAR KE CANVAS DENGAN DITHERING
         function drawFrame() {
             if (video.videoWidth === 0 || video.videoHeight === 0) return;
 
@@ -368,38 +379,126 @@ void loop() {
                 targetY = parseInt(customY.value);
             }
 
-            // 4. Terapkan Filter
+            // 4. Terapkan Filter Gambar (Brightness/Contrast)
             const bright = brightnessInput.value;
             const cont = contrastInput.value;
             const inv = invertInput.checked ? 'invert(100%)' : 'invert(0%)';
             ctx.filter = `brightness(${bright}%) contrast(${cont}%) ${inv}`;
 
-            // 5. Eksekusi Gambar dengan Matrix Transform (Translasi & Rotasi)
+            // 5. Eksekusi Gambar dengan Transformasi
             ctx.save();
-            ctx.translate(targetX + targetW / 2, targetY + targetH / 2); // Pindah ke titik tengah target
-            ctx.rotate(rotationAngle * Math.PI / 180); // Putar canvas
-            
+            ctx.translate(targetX + targetW / 2, targetY + targetH / 2);
+            ctx.rotate(rotationAngle * Math.PI / 180);
             let drawW = isRotated ? targetH : targetW;
             let drawH = isRotated ? targetW : targetH;
-            
             ctx.drawImage(video, -drawW / 2, -drawH / 2, drawW, drawH);
             ctx.restore();
             ctx.filter = 'none';
 
-            // 6. Thresholding Hitam Putih
-            const threshold = parseInt(thresholdInput.value);
+            // 6. PROSES KONVERSI (Threshold vs Dithering)
+            const ditherMode = ditherModeInput.value;
+            const thresholdValue = parseInt(thresholdInput.value);
             const imageData = ctx.getImageData(0, 0, 128, 64);
             const data = imageData.data;
-            
-            for (let i = 0; i < data.length; i += 4) {
-                let avg = (data[i] + data[i+1] + data[i+2]) / 3;
-                let color = avg >= threshold ? 255 : 0;
-                data[i] = data[i+1] = data[i+2] = color;
+
+            if (ditherMode === 'threshold') {
+                // Algoritma Solid Threshold
+                for (let i = 0; i < data.length; i += 4) {
+                    let avg = (data[i] + data[i+1] + data[i+2]) / 3;
+                    let color = avg >= thresholdValue ? 255 : 0;
+                    data[i] = data[i+1] = data[i+2] = color;
+                }
+            } 
+            else if (ditherMode === 'bayer') {
+                // Algoritma Bayer Matrix 4x4 (Stabil & Presisi)
+                const bayer = [
+                    [ 0,  8,  2, 10],
+                    [12,  4, 14,  6],
+                    [ 3, 11,  1,  9],
+                    [15,  7, 13,  5]
+                ];
+                const bias = thresholdValue - 128; 
+                for (let y = 0; y < 64; y++) {
+                    for (let x = 0; x < 128; x++) {
+                        let idx = (y * 128 + x) * 4;
+                        let avg = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+                        avg = Math.max(0, Math.min(255, avg - bias));
+                        
+                        let bayerValue = (bayer[y % 4][x % 4] / 16.0) * 255;
+                        let color = avg >= bayerValue ? 255 : 0;
+                        data[idx] = data[idx+1] = data[idx+2] = color;
+                    }
+                }
+            } 
+            else if (ditherMode === 'floyd') {
+                // Algoritma Floyd-Steinberg
+                let gray = new Int16Array(128 * 64);
+                const bias = thresholdValue - 128;
+                
+                for (let i = 0; i < 128 * 64; i++) {
+                    let avg = (data[i*4] + data[i*4+1] + data[i*4+2]) / 3;
+                    gray[i] = Math.max(0, Math.min(255, avg - bias));
+                }
+
+                for (let y = 0; y < 64; y++) {
+                    for (let x = 0; x < 128; x++) {
+                        let idx = y * 128 + x;
+                        let oldPixel = gray[idx];
+                        let newPixel = oldPixel >= 128 ? 255 : 0;
+                        
+                        data[idx*4] = data[idx*4+1] = data[idx*4+2] = newPixel;
+                        
+                        let err = oldPixel - newPixel;
+                        if (x < 127) gray[idx + 1] += (err * 7) >> 4;
+                        if (x > 0 && y < 63) gray[idx + 127] += (err * 3) >> 4;
+                        if (y < 63) gray[idx + 128] += (err * 5) >> 4;
+                        if (x < 127 && y < 63) gray[idx + 129] += (err * 1) >> 4;
+                    }
+                }
             }
+            else if (ditherMode === 'atkinson') {
+                // Algoritma Atkinson Dithering (Paling cocok buat cegah blok hitam)
+                let gray = new Int16Array(128 * 64);
+                const bias = thresholdValue - 128;
+                
+                // Ubah gambar ke bentuk grayscale terlebih dahulu
+                for (let i = 0; i < 128 * 64; i++) {
+                    let avg = (data[i*4] + data[i*4+1] + data[i*4+2]) / 3;
+                    gray[i] = Math.max(0, Math.min(255, avg - bias));
+                }
+
+                // Proses sebarkan titik tanpa memblok warna
+                for (let y = 0; y < 64; y++) {
+                    for (let x = 0; x < 128; x++) {
+                        let idx = y * 128 + x;
+                        let oldPixel = gray[idx];
+                        let newPixel = oldPixel >= 128 ? 255 : 0;
+                        
+                        // Tulis hasil pixel (hitam/putih murni)
+                        data[idx*4] = data[idx*4+1] = data[idx*4+2] = newPixel;
+                        
+                        // Error (selisih) dibagi 8
+                        let err = (oldPixel - newPixel) >> 3;
+                        
+                        // Distribusi sisa nilai (Atkinson membuang sedikit error agar kontras lebih tinggi)
+                        if (x + 1 < 128) gray[idx + 1] += err;
+                        if (x + 2 < 128) gray[idx + 2] += err;
+                        if (y + 1 < 64) {
+                            if (x - 1 >= 0) gray[idx + 127] += err;
+                            gray[idx + 128] += err;
+                            if (x + 1 < 128) gray[idx + 129] += err;
+                        }
+                        if (y + 2 < 64) {
+                            gray[idx + 256] += err;
+                        }
+                    }
+                }
+            }
+            
             ctx.putImageData(imageData, 0, 0);
         }
 
-        // FUNGSI EKSTRAKSI
+        // FUNGSI EKSTRAKSI ARRAY C++
         convertBtn.addEventListener('click', async () => {
             if(isConverting) return;
             isConverting = true;
