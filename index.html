@@ -276,7 +276,7 @@ void loop() {
         let animationFrameId = null;
         let rotationAngle = 0;
 
-        // UI Listeners
+        // UI Listeners (Update Label Span)
         const bindLabel = (input, labelId, suffix = '') => {
             input.addEventListener('input', () => {
                 document.getElementById(labelId).innerText = input.value + suffix;
@@ -292,11 +292,64 @@ void loop() {
         bindLabel(customX, 'cxVal');
         bindLabel(customY, 'cyVal');
 
+        // --- FITUR BARU: AUTO-SAVE LOCALSTORAGE ---
+        const saveSettings = () => {
+            const settings = {
+                ditherMode: ditherModeInput.value,
+                scaleMode: scaleModeInput.value,
+                fps: fpsInput.value,
+                threshold: thresholdInput.value,
+                contrast: contrastInput.value,
+                brightness: brightnessInput.value,
+                invert: invertInput.checked,
+                customW: customW.value,
+                customH: customH.value,
+                customX: customX.value,
+                customY: customY.value
+            };
+            localStorage.setItem('oledVideoSettings', JSON.stringify(settings));
+        };
+
+        const loadSettings = () => {
+            const saved = localStorage.getItem('oledVideoSettings');
+            if (saved) {
+                const settings = JSON.parse(saved);
+                
+                if(settings.ditherMode) ditherModeInput.value = settings.ditherMode;
+                if(settings.scaleMode) scaleModeInput.value = settings.scaleMode;
+                
+                if(settings.fps) { fpsInput.value = settings.fps; document.getElementById('fpsVal').innerText = settings.fps; }
+                if(settings.threshold) { thresholdInput.value = settings.threshold; document.getElementById('threshVal').innerText = settings.threshold; }
+                if(settings.contrast) { contrastInput.value = settings.contrast; document.getElementById('contrastVal').innerText = settings.contrast + '%'; }
+                if(settings.brightness) { brightnessInput.value = settings.brightness; document.getElementById('brightVal').innerText = settings.brightness + '%'; }
+                
+                if(settings.invert !== undefined) invertInput.checked = settings.invert;
+                
+                if(settings.customW) { customW.value = settings.customW; document.getElementById('cwVal').innerText = settings.customW; }
+                if(settings.customH) { customH.value = settings.customH; document.getElementById('chVal').innerText = settings.customH; }
+                if(settings.customX) { customX.value = settings.customX; document.getElementById('cxVal').innerText = settings.customX; }
+                if(settings.customY) { customY.value = settings.customY; document.getElementById('cyVal').innerText = settings.customY; }
+                
+                customControls.style.display = (scaleModeInput.value === 'custom') ? 'block' : 'none';
+            }
+        };
+
+        // Panggil saat web direfresh
+        loadSettings();
+
+        // Pantau semua perubahan dan simpan otomatis
+        [ditherModeInput, scaleModeInput, fpsInput, thresholdInput, contrastInput, brightnessInput, invertInput, customW, customH, customX, customY].forEach(el => {
+            el.addEventListener('input', saveSettings);
+            el.addEventListener('change', saveSettings);
+        });
+        // ------------------------------------------
+
         // Reset Buttons
         const setupReset = (btnId, inputEl, defaultVal, labelId, suffix = '') => {
             document.getElementById(btnId).addEventListener('click', () => {
                 inputEl.value = defaultVal;
                 document.getElementById(labelId).innerText = defaultVal + suffix;
+                saveSettings(); // Simpan juga saat direset
                 if (video.paused && !isConverting) drawFrame();
             });
         };
@@ -317,7 +370,7 @@ void loop() {
             if (video.paused && !isConverting) drawFrame();
         });
 
-        // Live Update Triggers
+        // Live Update Triggers (Redraw Frame)
         [ditherModeInput, thresholdInput, contrastInput, brightnessInput, invertInput, customW, customH, customX, customY].forEach(el => {
             el.addEventListener('input', () => { if(video.paused && !isConverting) drawFrame(); });
         });
@@ -402,7 +455,6 @@ void loop() {
             const data = imageData.data;
 
             if (ditherMode === 'threshold') {
-                // Algoritma Solid Threshold
                 for (let i = 0; i < data.length; i += 4) {
                     let avg = (data[i] + data[i+1] + data[i+2]) / 3;
                     let color = avg >= thresholdValue ? 255 : 0;
@@ -410,7 +462,6 @@ void loop() {
                 }
             } 
             else if (ditherMode === 'bayer') {
-                // Algoritma Bayer Matrix 4x4 (Stabil & Presisi)
                 const bayer = [
                     [ 0,  8,  2, 10],
                     [12,  4, 14,  6],
@@ -431,7 +482,6 @@ void loop() {
                 }
             } 
             else if (ditherMode === 'floyd') {
-                // Algoritma Floyd-Steinberg
                 let gray = new Int16Array(128 * 64);
                 const bias = thresholdValue - 128;
                 
@@ -457,30 +507,24 @@ void loop() {
                 }
             }
             else if (ditherMode === 'atkinson') {
-                // Algoritma Atkinson Dithering (Paling cocok buat cegah blok hitam)
                 let gray = new Int16Array(128 * 64);
                 const bias = thresholdValue - 128;
                 
-                // Ubah gambar ke bentuk grayscale terlebih dahulu
                 for (let i = 0; i < 128 * 64; i++) {
                     let avg = (data[i*4] + data[i*4+1] + data[i*4+2]) / 3;
                     gray[i] = Math.max(0, Math.min(255, avg - bias));
                 }
 
-                // Proses sebarkan titik tanpa memblok warna
                 for (let y = 0; y < 64; y++) {
                     for (let x = 0; x < 128; x++) {
                         let idx = y * 128 + x;
                         let oldPixel = gray[idx];
                         let newPixel = oldPixel >= 128 ? 255 : 0;
                         
-                        // Tulis hasil pixel (hitam/putih murni)
                         data[idx*4] = data[idx*4+1] = data[idx*4+2] = newPixel;
                         
-                        // Error (selisih) dibagi 8
                         let err = (oldPixel - newPixel) >> 3;
                         
-                        // Distribusi sisa nilai (Atkinson membuang sedikit error agar kontras lebih tinggi)
                         if (x + 1 < 128) gray[idx + 1] += err;
                         if (x + 2 < 128) gray[idx + 2] += err;
                         if (y + 1 < 64) {
