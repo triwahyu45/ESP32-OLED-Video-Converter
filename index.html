@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Video to OLED Animation Converter</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #1e1e1e; color: #e0e0e0; max-width: 1000px; margin: 0 auto; padding: 20px; }
+        h2 { text-align: center; color: #fff; margin-bottom: 30px; }
+        .container { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-start; }
+        .box { background: #2a2a2b; padding: 20px; border-radius: 10px; flex: 1; min-width: 300px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border: 1px solid #3a3a3c; }
+        .box h3 { margin-top: 0; color: #00e5ff; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        canvas { background: #000; border: 2px solid #555; image-rendering: pixelated; width: 100%; max-width: 256px; height: auto; display: block; margin: 0 auto 15px auto; border-radius: 4px; }
+        video { width: 100%; max-width: 256px; background: #000; display: block; margin: 0 auto 15px auto; border-radius: 4px; }
+        textarea { width: 100%; height: 200px; background: #111; color: #00e5ff; font-family: 'Courier New', Courier, monospace; padding: 10px; border: 1px solid #444; border-radius: 5px; box-sizing: border-box; resize: vertical; }
+        button.action-btn { background: #007bff; color: white; border: none; padding: 12px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; transition: background 0.2s; font-size: 15px; }
+        button.action-btn:hover { background: #0056b3; }
+        button.action-btn:disabled { background: #555; cursor: not-allowed; color: #999; }
+        .btn-success { background: #0097e6; margin-bottom: 15px; }
+        .btn-success:hover { background: #007bb5; }
+        
+        .control-group { margin-bottom: 12px; }
+        label { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #bbb; margin-bottom: 5px; font-weight: 500; }
+        input[type="range"] { width: 100%; cursor: pointer; }
+        select { width: 100%; padding: 8px; border-radius: 4px; background: #111; color: #fff; border: 1px solid #555; cursor: pointer; }
+        input[type="file"] { width: 100%; padding: 10px 0; color: #ccc; }
+        
+        .checkbox-group { display: flex; align-items: center; justify-content: space-between; margin-top: 15px; padding: 10px; background: #111; border-radius: 5px; border: 1px solid #444; }
+        .checkbox-group div { display: flex; align-items: center; gap: 10px; }
+        .checkbox-group label { margin: 0; font-size: 14px; cursor: pointer; color: #fff; }
+        .checkbox-group input { cursor: pointer; width: 18px; height: 18px; }
+        
+        .reset-btn { background: none; border: none; color: #888; font-size: 16px; cursor: pointer; padding: 0 5px; transition: color 0.2s; display: flex; align-items: center; justify-content: center; }
+        .reset-btn:hover { color: #ff4757; }
+        
+        .custom-panel { display: none; background: #1a1a1a; padding: 15px; border-radius: 5px; border: 1px dashed #555; margin-bottom: 15px; }
+        
+        /* CSS Footer Credit */
+        .footer-credit { text-align: center; margin-top: 40px; margin-bottom: 20px; padding-top: 20px; border-top: 1px solid #333; color: #888; font-size: 14px; }
+        .footer-credit a { color: #00e5ff; text-decoration: none; margin: 0 10px; transition: color 0.2s; font-weight: bold; }
+        .footer-credit a:hover { color: #fff; }
+    </style>
+</head>
+<body>
+    <h2>ESP32 OLED Video Animation Converter</h2>
+    
+    <div class="container">
+        <div class="box">
+            <h3>1. Input & Pengaturan</h3>
+            <input type="file" id="upload" accept="video/*">
+            
+            <button id="rotateBtn" class="action-btn" style="background: #333; margin-top: 10px; border: 1px solid #555; color: #00e5ff;">↻ Putar Video 90°</button>
+
+            <div class="control-group" style="margin-top: 15px;">
+                <label><span>Mode Skala Layar:</span></label>
+                <select id="scaleMode">
+                    <option value="fit">Best Fit (Proporsional dengan Border Hitam)</option>
+                    <option value="stretch">Stretch (Penuhi Layar 128x64)</option>
+                    <option value="custom">Custom (Atur Manual)</option>
+                </select>
+            </div>
+
+            <div id="customControls" class="custom-panel">
+                <p style="margin: 0 0 10px 0; font-size: 12px; color: #00e5ff; font-weight: bold;">KONTROL CUSTOM:</p>
+                <div class="control-group">
+                    <label>Lebar (W): <span id="cwVal">128</span></label>
+                    <input type="range" id="customW" min="10" max="256" value="128">
+                </div>
+                <div class="control-group">
+                    <label>Tinggi (H): <span id="chVal">64</span></label>
+                    <input type="range" id="customH" min="10" max="128" value="64">
+                </div>
+                <div class="control-group">
+                    <label>Geser X: <span id="cxVal">0</span></label>
+                    <input type="range" id="customX" min="-128" max="128" value="0">
+                </div>
+                <div class="control-group">
+                    <label>Geser Y: <span id="cyVal">0</span></label>
+                    <input type="range" id="customY" min="-64" max="64" value="0">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>
+                    <span>Target FPS: <span id="fpsVal">10</span></span>
+                    <button class="reset-btn" id="resetFps" title="Reset FPS ke 10">↺</button>
+                </label>
+                <input type="range" id="fps" min="1" max="30" value="10">
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #444; margin: 20px 0;">
+            <p style="font-size: 13px; color: #888; margin-bottom: 10px; font-weight: bold;">PENGATURAN GAMBAR:</p>
+
+            <div class="control-group">
+                <label>
+                    <span>B/W Threshold: <span id="threshVal">128</span></span>
+                    <button class="reset-btn" id="resetThresh" title="Reset Threshold ke 128">↺</button>
+                </label>
+                <input type="range" id="threshold" min="0" max="255" value="128">
+            </div>
+
+            <div class="control-group">
+                <label>
+                    <span>Contrast: <span id="contrastVal">100%</span></span>
+                    <button class="reset-btn" id="resetContrast" title="Reset Contrast ke 100%">↺</button>
+                </label>
+                <input type="range" id="contrast" min="0" max="300" value="100">
+            </div>
+
+            <div class="control-group">
+                <label>
+                    <span>Brightness: <span id="brightVal">100%</span></span>
+                    <button class="reset-btn" id="resetBrightness" title="Reset Brightness ke 100%">↺</button>
+                </label>
+                <input type="range" id="brightness" min="0" max="200" value="100">
+            </div>
+
+            <div class="checkbox-group">
+                <div>
+                    <input type="checkbox" id="invert">
+                    <label for="invert">Invert Colors (Kebalikan)</label>
+                </div>
+            </div>
+            
+            <button id="convertBtn" class="action-btn" disabled style="margin-top: 20px;">Mulai Extract Frame-by-Frame</button>
+        </div>
+
+        <div class="box">
+            <h3>2. Live Preview (OLED 128x64)</h3>
+            <video id="video" controls muted loop></video>
+            <canvas id="canvas" width="128" height="64"></canvas>
+            
+            <div style="background: #111; padding: 15px; border-radius: 5px; border: 1px solid #444; margin-top: 15px;">
+                <p id="status" style="color: #ffcc00; margin: 0 0 10px 0; font-weight: bold;">Status: Menunggu video...</p>
+                <p style="margin: 0; font-size: 14px;">Total Frame Diekstrak: <b id="frameCount" style="color: #00e5ff; font-size: 16px;">0</b></p>
+            </div>
+        </div>
+    </div>
+
+    <div class="box" style="margin-bottom: 20px;">
+        <h3>3. Hasil Array C++ (VideoFrame.h)</h3>
+        <p style="font-size: 14px; color: #bbb;">Buat file/tab baru di Arduino IDE dengan nama <b style="color: #00e5ff;">VideoFrame.h</b> lalu paste kode ini.</p>
+        <button id="copyArrayBtn" class="action-btn btn-success">📋 Copy Data Array</button>
+        <textarea id="outputArray" readonly placeholder="Kode C++ siap disalin akan muncul di sini..."></textarea>
+    </div>
+
+    <div class="box">
+        <h3>4. Kode Utama (Main.ino)</h3>
+        <p style="font-size: 14px; color: #bbb;">Paste kode ini ke file utama (.ino) kamu. Jangan lupa pilih tipe OLED yang kamu pakai di bagian paling atas kode.</p>
+        <button id="copyMainBtn" class="action-btn btn-success">📋 Copy Kode Main.ino</button>
+        <textarea id="outputMain" readonly style="height: 350px;">
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include "VideoFrame.h" 
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+
+// ========================================================
+// ⚙️ PILIH TIPE OLED DI SINI (Aktifkan salah satu saja!)
+// ========================================================
+// #define PAKAI_SSD1306
+#define PAKAI_SH1106
+// ========================================================
+
+// Konfigurasi otomatis berdasarkan pilihan di atas
+#ifdef PAKAI_SSD1306
+  #include <Adafruit_SSD1306.h>
+  Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+  #define WARNA_LAYAR WHITE  // SSD1306 pakai "WHITE"
+
+#elif defined(PAKAI_SH1106)
+  #include <Adafruit_SH110X.h>
+  Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+  #define WARNA_LAYAR SH110X_WHITE // SH110X pakai "SH110X_WHITE"
+#endif
+
+unsigned long previousMillis = 0;
+int currentFrame = 0;
+
+void setup() {
+  Serial.begin(115200);
+
+  // Inisialisasi otomatis menyesuaikan chip
+  #ifdef PAKAI_SSD1306
+    if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
+      Serial.println(F("OLED SSD1306 gagal terhubung."));
+      for(;;); 
+    }
+  #elif defined(PAKAI_SH1106)
+    if(!display.begin(0x3C, true)) { // SH1106 format begin-nya beda
+      Serial.println(F("OLED SH1106 gagal terhubung."));
+      for(;;); 
+    }
+  #endif
+
+  // I2C ngebut 800 kHz biar FPS video aman
+  Wire.setClock(800000); 
+
+  display.clearDisplay();
+  display.display();
+}
+
+void loop() {
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousMillis >= FRAME_DELAY) {
+    
+    previousMillis = currentMillis;
+
+    display.clearDisplay();
+    
+    // Variabel WARNA_LAYAR otomatis berubah ngikutin chip yang dipilih
+    display.drawBitmap(0, 0, video_frames[currentFrame], SCREEN_WIDTH, SCREEN_HEIGHT, WARNA_LAYAR);
+    display.display();
+
+    currentFrame++;
+
+    if (currentFrame >= TOTAL_FRAMES) {
+      currentFrame = 0;
+    }
+  }
+}
+        </textarea>
+    </div>
+
+    <div class="footer-credit">
+        Dibuat dengan 💻 oleh <b style="color: #fff;">Tri Wahyu</b><br><br>
+        <a href="https://instagram.com/Triwahyu45" target="_blank">📸 Instagram</a> | 
+        <a href="https://youtube.com/@Triwahyu45" target="_blank">🎥 YouTube</a>
+    </div>
+
+    <script>
+        // DOM Elements
+        const upload = document.getElementById('upload');
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        
+        const outputArray = document.getElementById('outputArray');
+        const outputMain = document.getElementById('outputMain');
+        const status = document.getElementById('status');
+        
+        const convertBtn = document.getElementById('convertBtn');
+        const copyArrayBtn = document.getElementById('copyArrayBtn');
+        const copyMainBtn = document.getElementById('copyMainBtn');
+        const rotateBtn = document.getElementById('rotateBtn');
+        const frameCountSpan = document.getElementById('frameCount');
+
+        // Settings Elements
+        const scaleModeInput = document.getElementById('scaleMode');
+        const customControls = document.getElementById('customControls');
+        const fpsInput = document.getElementById('fps');
+        const thresholdInput = document.getElementById('threshold');
+        const contrastInput = document.getElementById('contrast');
+        const brightnessInput = document.getElementById('brightness');
+        const invertInput = document.getElementById('invert');
+        
+        const customW = document.getElementById('customW');
+        const customH = document.getElementById('customH');
+        const customX = document.getElementById('customX');
+        const customY = document.getElementById('customY');
+
+        let isConverting = false;
+        let animationFrameId = null;
+        let rotationAngle = 0;
+
+        // UI Listeners
+        const bindLabel = (input, labelId, suffix = '') => {
+            input.addEventListener('input', () => {
+                document.getElementById(labelId).innerText = input.value + suffix;
+            });
+        };
+        
+        bindLabel(fpsInput, 'fpsVal');
+        bindLabel(thresholdInput, 'threshVal');
+        bindLabel(contrastInput, 'contrastVal', '%');
+        bindLabel(brightnessInput, 'brightVal', '%');
+        bindLabel(customW, 'cwVal');
+        bindLabel(customH, 'chVal');
+        bindLabel(customX, 'cxVal');
+        bindLabel(customY, 'cyVal');
+
+        // Reset Buttons
+        const setupReset = (btnId, inputEl, defaultVal, labelId, suffix = '') => {
+            document.getElementById(btnId).addEventListener('click', () => {
+                inputEl.value = defaultVal;
+                document.getElementById(labelId).innerText = defaultVal + suffix;
+                if (video.paused && !isConverting) drawFrame();
+            });
+        };
+        setupReset('resetFps', fpsInput, 10, 'fpsVal');
+        setupReset('resetThresh', thresholdInput, 128, 'threshVal');
+        setupReset('resetContrast', contrastInput, 100, 'contrastVal', '%');
+        setupReset('resetBrightness', brightnessInput, 100, 'brightVal', '%');
+
+        // Show/Hide Custom Controls
+        scaleModeInput.addEventListener('change', () => {
+            customControls.style.display = (scaleModeInput.value === 'custom') ? 'block' : 'none';
+            if (video.paused && !isConverting) drawFrame();
+        });
+
+        // Rotate Button Logic
+        rotateBtn.addEventListener('click', () => {
+            rotationAngle = (rotationAngle + 90) % 360;
+            if (video.paused && !isConverting) drawFrame();
+        });
+
+        // Live Update Triggers
+        [thresholdInput, contrastInput, brightnessInput, invertInput, customW, customH, customX, customY].forEach(el => {
+            el.addEventListener('input', () => { if(video.paused && !isConverting) drawFrame(); });
+        });
+
+        upload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if(file) {
+                video.src = URL.createObjectURL(file);
+                convertBtn.disabled = false;
+                rotationAngle = 0; // Reset rotasi saat ganti video
+                status.innerText = "Video dimuat. Atur pengaturan, lalu klik Extract.";
+            }
+        });
+
+        // Render Engine
+        function renderLoop() {
+            if (!video.paused && !video.ended && !isConverting) drawFrame();
+            animationFrameId = requestAnimationFrame(renderLoop);
+        }
+
+        video.addEventListener('play', () => { if (!animationFrameId) renderLoop(); });
+        video.addEventListener('pause', () => {
+            if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
+            if (!isConverting) drawFrame(); 
+        });
+        video.addEventListener('timeupdate', () => { if (video.paused && !isConverting) drawFrame(); });
+
+        // FUNGSI MENGGAMBAR KE CANVAS
+        function drawFrame() {
+            if (video.videoWidth === 0 || video.videoHeight === 0) return;
+
+            // 1. Bersihkan Canvas
+            ctx.filter = 'none';
+            ctx.fillStyle = "black";
+            ctx.fillRect(0, 0, 128, 64);
+
+            // 2. Kalkulasi Dimensi Efektif
+            let vW = video.videoWidth;
+            let vH = video.videoHeight;
+            let isRotated = (rotationAngle % 180 !== 0);
+            let effW = isRotated ? vH : vW;
+            let effH = isRotated ? vW : vH;
+
+            // 3. Kalkulasi Target Kotak Gambar
+            let targetX = 0, targetY = 0, targetW = 128, targetH = 64;
+
+            if (scaleModeInput.value === 'stretch') {
+                targetX = 0; targetY = 0; targetW = 128; targetH = 64;
+            } else if (scaleModeInput.value === 'fit') {
+                const scale = Math.min(128 / effW, 64 / effH);
+                targetW = effW * scale;
+                targetH = effH * scale;
+                targetX = (128 - targetW) / 2;
+                targetY = (64 - targetH) / 2;
+            } else if (scaleModeInput.value === 'custom') {
+                targetW = parseInt(customW.value);
+                targetH = parseInt(customH.value);
+                targetX = parseInt(customX.value);
+                targetY = parseInt(customY.value);
+            }
+
+            // 4. Terapkan Filter
+            const bright = brightnessInput.value;
+            const cont = contrastInput.value;
+            const inv = invertInput.checked ? 'invert(100%)' : 'invert(0%)';
+            ctx.filter = `brightness(${bright}%) contrast(${cont}%) ${inv}`;
+
+            // 5. Eksekusi Gambar dengan Matrix Transform (Translasi & Rotasi)
+            ctx.save();
+            ctx.translate(targetX + targetW / 2, targetY + targetH / 2); // Pindah ke titik tengah target
+            ctx.rotate(rotationAngle * Math.PI / 180); // Putar canvas
+            
+            let drawW = isRotated ? targetH : targetW;
+            let drawH = isRotated ? targetW : targetH;
+            
+            ctx.drawImage(video, -drawW / 2, -drawH / 2, drawW, drawH);
+            ctx.restore();
+            ctx.filter = 'none';
+
+            // 6. Thresholding Hitam Putih
+            const threshold = parseInt(thresholdInput.value);
+            const imageData = ctx.getImageData(0, 0, 128, 64);
+            const data = imageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+                let avg = (data[i] + data[i+1] + data[i+2]) / 3;
+                let color = avg >= threshold ? 255 : 0;
+                data[i] = data[i+1] = data[i+2] = color;
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        // FUNGSI EKSTRAKSI
+        convertBtn.addEventListener('click', async () => {
+            if(isConverting) return;
+            isConverting = true;
+            convertBtn.disabled = true;
+            outputArray.value = "Memproses... Ini mungkin butuh waktu beberapa saat.";
+            frameCountSpan.innerText = "0";
+            
+            video.pause();
+            status.innerText = "Mengekstrak frame...";
+
+            let framesData = [];
+            const fps = parseInt(fpsInput.value);
+            const duration = video.duration;
+            const totalFrames = Math.floor(duration * fps);
+            const interval = 1 / fps;
+
+            for (let i = 0; i < totalFrames; i++) {
+                video.currentTime = i * interval;
+                await new Promise(resolve => { video.onseeked = resolve; });
+                drawFrame();
+
+                const imageData = ctx.getImageData(0, 0, 128, 64);
+                const data = imageData.data;
+                let byteArray = [];
+
+                for (let y = 0; y < 64; y++) {
+                    for (let x_byte = 0; x_byte < 16; x_byte++) {
+                        let byte = 0;
+                        for (let bit = 0; bit < 8; bit++) {
+                            let x = (x_byte * 8) + bit;
+                            let pos = (y * 128 + x) * 4;
+                            if (data[pos] === 255) { byte |= (1 << (7 - bit)); }
+                        }
+                        byteArray.push("0x" + byte.toString(16).padStart(2, '0'));
+                    }
+                }
+                framesData.push(`  {\n    ${byteArray.join(", ")}\n  }`);
+                frameCountSpan.innerText = framesData.length;
+            }
+
+            const finalCode = 
+`#include <Arduino.h>
+
+const int TOTAL_FRAMES = ${framesData.length};
+const int FRAME_DELAY = ${Math.floor(1000 / fps)}; // Target jeda antar frame (ms)
+
+const unsigned char video_frames[][1024] PROGMEM = {
+${framesData.join(",\n")}
+};`;
+            
+            outputArray.value = finalCode;
+            status.innerText = "✅ Selesai! Silakan copy kode di bawah.";
+            isConverting = false;
+            convertBtn.disabled = false;
+        });
+
+        // Fungsi Copy Universal
+        const setupCopy = (btnId, outputEl) => {
+            document.getElementById(btnId).addEventListener('click', () => {
+                if(outputEl.value.trim() === "") return;
+                outputEl.select();
+                document.execCommand('copy');
+                const btn = document.getElementById(btnId);
+                const originalText = btn.innerText;
+                btn.innerText = "✅ Berhasil Di-copy!";
+                setTimeout(() => btn.innerText = originalText, 2000);
+            });
+        };
+        
+        setupCopy('copyArrayBtn', outputArray);
+        setupCopy('copyMainBtn', outputMain);
+    </script>
+</body>
+</html>
